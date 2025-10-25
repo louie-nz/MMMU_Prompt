@@ -63,43 +63,43 @@ def main():
     call_model_engine = call_llava_engine_df
     vis_process_func = llava_image_processor
 
-    # load config and process to one value
+    # load config
     args.config = load_yaml(args.config_path)
     for key, value in args.config.items():
-        if key != 'eval_params' and type(value) == list:
-            assert len(value) == 1, 'key {} has more than one value'.format(key)
+        if key != 'eval_params' and isinstance(value, list):
+            assert len(value) == 1, f'key {key} has more than one value'
             args.config[key] = value[0]
 
-    # run for each subject
-    sub_dataset_list = []
-    for subject in CAT_SHORT2LONG.values():
-        sub_dataset = load_dataset(args.data_path, subject, split=args.split)
-        sub_dataset_list.append(sub_dataset)
-
-    # merge all dataset
-    dataset = concatenate_datasets(sub_dataset_list)
-
-
-    # load model
+    # load model BEFORE looping
     model_name = get_model_name_from_path(args.model_path)
-    tokenizer, model, vis_processors, _ = load_pretrained_model(args.model_path, None,
-                                                                model_name)
+    tokenizer, model, vis_processors, _ = load_pretrained_model(
+        args.model_path, None, model_name
+    )
 
-    samples = []
-    for sample in dataset:
-        sample = process_single_sample(sample)
+    all_outputs = {}
 
-        sample = construct_prompt(sample, args.config)
-        if sample['image']:
-            sample['image'] = vis_process_func(sample['image'], vis_processors).to(device)
-        samples.append(sample)
+    # loop over subjects
+    for subject in CAT_SHORT2LONG.values():
+        print(f"=== Running evaluation for {subject} ===")
+        dataset = load_dataset(args.data_path, subject, split=args.split)
 
-    # run ex
-    out_samples = run_model(args, samples, model, call_model_engine, tokenizer, processor)
+        samples = []
+        for sample in dataset:
+            sample = process_single_sample(sample)
+            sample = construct_prompt(sample, args.config)
+            if sample['image']:
+                sample['image'] = vis_process_func(sample['image'], vis_processors).to(device)
+            samples.append(sample)
 
-    save_json(args.output_path, out_samples)
-    # metric_dict.update({"num_example": len(out_samples)})
-    # save_json(save_result_path, metric_dict)
+        out_samples = run_model(args, samples, model, call_model_engine, tokenizer, processor)
+
+        # prefix keys with subject name
+        for k, v in out_samples.items():
+            all_outputs[k] = v
+
+    # save once at the end
+    save_json(args.output_path, all_outputs)
+    print(f"All subjects finished. Results saved to {args.output_path}")    
 
 
 if __name__ == '__main__':
